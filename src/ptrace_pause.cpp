@@ -105,8 +105,8 @@ vector<unw_word_t> unwind_call_stack(vector<pid_t> tids){
 
 
 
-	
-bool ptrace_single_step(pid_t tid, void* lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs){
+#ifdef Intel64	
+bool ptrace_single_step_intel64(pid_t tid, void* lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs){
    // setting the IP points to function in library
    ptrace(PTRACE_GETREGS,tid,NULL, &regs);
    ptrace(PTRACE_GETFPREGS, tid, NULL, &fregs);
@@ -185,10 +185,7 @@ bool ptrace_single_step(pid_t tid, void* lib_addr, struct user_regs_struct &regs
    }
    return true;
 }
-
-
-
-void ptrace_cont(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs){
+void ptrace_cont_intel64(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs){
    printf("[tracer] after a PTRACE_SINGLESTEP, do a PTRACE_CONT\n");
    int status;
    ptrace(PTRACE_CONT, tid, NULL, NULL);
@@ -240,4 +237,201 @@ void ptrace_cont(pid_t tid, struct user_regs_struct &regs, struct user_regs_stru
    printf("[tracer] machine code insertion finishes!\n");
    return;
 }
+#endif
+#ifdef AArch64
+bool ptrace_single_step_aarch64(pid_t tid, void *lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpsimd_struct &fregs)
+{
+   // setting the IP points to function in library
+   struct iovec io_regs;
+   io_regs.iov_base = &regs;
+   io_regs.iov_len = sizeof(regs);
+   struct iovec io_old_regs;
+   io_old_regs.iov_base = &old_regs;
+   io_old_regs.iov_len = sizeof(old_regs);
+   struct iovec io_fregs;
+   io_fregs.iov_base = &fregs;
+   io_fregs.iov_len = sizeof(fregs);
 
+   if (ptrace(PTRACE_GETREGSET, tid, (void *)NT_PRSTATUS, &io_regs))
+   {
+      fprintf(stderr, "Error getting register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+   if (ptrace(PTRACE_GETREGSET, tid, (void *)NT_PRFPREG, &io_fregs))
+   {
+      fprintf(stderr, "Error getting fp register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+
+   old_regs = regs;
+   regs.pc = (long)lib_addr;
+   //regs.sp = ((regs.sp - 256) & 0xFFFFFFFFFFFFFFF0) - 8;
+   printf("[debug]:old_regs.sp=%llx,reg.sp=%llx\n",old_regs.sp,regs.sp);
+   printf("[debug]:old_regs.pc=%llx,reg.pc=%llx\n",old_regs.pc,regs.pc);
+   if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRSTATUS, &io_regs))
+   {
+      fprintf(stderr, "Error getting register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+   // this step
+   //    ptrace(PTRACE_GETREGS, tid, NULL, &regs);
+   if (ptrace(PTRACE_GETREGSET, tid, (void *)NT_PRSTATUS, &io_regs))
+   {
+      fprintf(stderr, "Error getting register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+#ifdef DEBUG_INFO
+      printf("[tracer] thread id = %d, rip = %llx\n", tid, old_regs.pc);
+      printf("[tracer] before SINGLESTEP, set PC = %llx (lib addr)\n", regs.pc);
+#endif
+
+   int status;
+   ptrace(PTRACE_SINGLESTEP, tid, NULL, 0);
+   waitpid(tid, &status, 0);
+
+   if (!WIFSTOPPED(status))
+   {
+      if (WIFEXITED(status))
+      {
+         int num = WEXITSTATUS(status);
+         printf("[tracer][error] tracee exits normally, exit num = %d\n", num);
+      }
+      if (WIFSIGNALED(status))
+      {
+         int num = WTERMSIG(status);
+         printf("[tracer][error] tracee deliviers a signal, sig num = %d\n", num);
+      }
+      exit(-1);
+   }
+   else
+   {
+      int sig = WSTOPSIG(status);
+      if (sig != SIGTRAP)
+      {
+         char *sig_str = strdup(_sys_siglist[sig]);
+
+#ifdef DEBUG_INFO
+         printf("[tracer][error] tracee deliver a signal %s\n", sig_str);
+         printf("[tracer][error] this is wrong, the signal delivered should be SIGTRAP\n");
+#endif
+
+         if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRSTATUS, &io_old_regs))
+         {
+            fprintf(stderr, "Error setting register set: %s\n", strerror(errno));
+            exit(-1);
+         }
+         if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRFPREG, &io_fregs))
+         {
+            fprintf(stderr, "Error setting fp register set: %s\n", strerror(errno));
+            exit(-1);
+         }
+         return false;
+      }
+   }
+   if (ptrace(PTRACE_GETREGSET, tid, (void *)NT_PRSTATUS, &io_regs))
+   {
+      fprintf(stderr, "Error getting register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+
+#ifdef DEBUG_INFO
+   printf("[tracer] receive SIGSTOP from tracee (lib code), tracee finished a SINGLESTEP!\n");
+   printf("[tracer] after SINGLESTEP, PC = %llx\n", regs.pc);
+#endif
+   //struct user_regs_struct *regs_new=(struct user_regs_struct *)io_regs.iov_base;
+   if (regs.pc <= (long long unsigned)lib_addr)
+   {
+      if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRSTATUS, &io_old_regs))
+      {
+         fprintf(stderr, "Error setting register set: %s\n", strerror(errno));
+         exit(-1);
+      }
+      if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRFPREG, &io_fregs))
+      {
+         fprintf(stderr, "Error setting fp register set: %s\n", strerror(errno));
+         exit(-1);
+      }
+
+#ifdef DEBUG_INFO
+      printf("---------------------------------\n");
+#endif
+      return false;
+   }
+   return true;
+}
+
+void ptrace_cont_aarch64(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpsimd_struct &fregs)
+{
+   struct iovec io_regs;
+   io_regs.iov_base = &regs;
+   io_regs.iov_len = sizeof(regs);
+   struct iovec io_old_regs;
+   io_old_regs.iov_base = &old_regs;
+   io_old_regs.iov_len = sizeof(old_regs);
+   struct iovec io_fregs;
+   io_fregs.iov_base = &fregs;
+   io_fregs.iov_len = sizeof(fregs);
+   printf("[tracer] after a PTRACE_SINGLESTEP, do a PTRACE_CONT\n");
+   int status;
+   ptrace(PTRACE_CONT, tid, NULL, NULL);
+   int threadid = waitpid(tid, &status, 0);
+   if (!WIFSTOPPED(status))
+   {
+      printf("[tracer][error] thread %d delivers a non-SIGSTOP signal\n", threadid);
+      if (WIFEXITED(status))
+      {
+         int num = WEXITSTATUS(status);
+         printf("[tracer][error] tracee exits normally, exit num = %d\n", num);
+      }
+      if (WIFSIGNALED(status))
+      {
+         int num = WTERMSIG(status);
+         printf("[tracer][error] tracee exits by signal, sig num = %d\n", num);
+      }
+      exit(-1);
+   }
+   else
+   {
+      int sig = WSTOPSIG(status);
+      char *sig_str = strdup(_sys_siglist[sig]);
+      if (sig != SIGSTOP)
+      {
+         printf("[tracer][error] after PTRACE_CONT, thread %d delivers a non-SIGSTOP signal: %s\n", threadid, sig_str);
+         if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRSTATUS, &io_old_regs))
+         {
+            fprintf(stderr, "Error setting register set: %s\n", strerror(errno));
+            exit(-1);
+         }
+         if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRFPREG, &io_fregs))
+         {
+            fprintf(stderr, "Error setting fp register set: %s\n", strerror(errno));
+            exit(-1);
+         }
+         return;
+      }
+      if (ptrace(PTRACE_GETREGSET, tid, (void *)NT_PRSTATUS, &io_regs))
+      {
+         fprintf(stderr, "Error getting register set: %s\n", strerror(errno));
+         exit(-1);
+      }
+
+#ifdef DEBUG_INFO
+      printf("[tracer] after PTRACE_CONT, tracee delivers a signal %s\n", sig_str);
+      printf("[tracer] PC = %llx\n", regs.pc);
+#endif
+   }
+   if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRSTATUS, &io_old_regs))
+   {
+      fprintf(stderr, "Error setting register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+   if (ptrace(PTRACE_SETREGSET, tid, (void *)NT_PRFPREG, &io_fregs))
+   {
+      fprintf(stderr, "Error setting fp register set: %s\n", strerror(errno));
+      exit(-1);
+   }
+
+   printf("[tracer] machine code insertion finishes!\n");
+   return;
+}
+#endif

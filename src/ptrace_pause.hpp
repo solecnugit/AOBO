@@ -34,7 +34,12 @@ vector<unw_word_t> unwind_call_stack(vector<pid_t> tids);
  * ld_preload lib code, we must pick a thread that is not blocked 
  * by the OS.
  */
-bool ptrace_single_step(pid_t tid, void* lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs);
+#ifdef Intel64
+bool ptrace_single_step_intel64(pid_t tid, void* lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs);
+#endif
+#ifdef AArch64
+bool ptrace_single_step_aarch64(pid_t tid, void* lib_addr, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpsimd_struct &fregs);
+#endif
 
 
 
@@ -44,4 +49,9 @@ bool ptrace_single_step(pid_t tid, void* lib_addr, struct user_regs_struct &regs
  * we resume the thread by ptrace(PTRACE_CONT) to execute the 
  * ld_preload lib code for code replacement. 
  */
-void ptrace_cont(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs);
+#ifdef Intel64
+void ptrace_cont_intel64(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpregs_struct &fregs);
+#endif
+#ifdef AArch64
+void ptrace_cont_aarch64(pid_t tid, struct user_regs_struct &regs, struct user_regs_struct &old_regs, struct user_fpsimd_struct &fregs);
+#endif

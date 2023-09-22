@@ -13,7 +13,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <cpuid.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <string>
@@ -28,6 +27,9 @@
 #include <sys/ptrace.h>
 #include <iostream>
 #include <filesystem>
+#ifdef Intel64
+#include <cpuid.h>
+#endif
 
 using namespace std;
 
