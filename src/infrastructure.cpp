@@ -66,7 +66,7 @@ void create_tcp_socket(int listen_fd, struct sockaddr_in & servaddr){
    bzero(&servaddr, sizeof(servaddr));
    servaddr.sin_family = AF_INET;
    servaddr.sin_addr.s_addr = htons(INADDR_ANY);
-   servaddr.sin_port = htons(8000);
+   servaddr.sin_port = htons(8011);
    bind(listen_fd, (struct sockaddr*)&servaddr, sizeof(servaddr));
    listen(listen_fd, 10);
 }
@@ -167,6 +167,7 @@ void run_perf_record(int target_pid, const ocolos_env* ocolos_environ){
    static int func_exec_count = 0;
    func_exec_count++;
    string command;
+#ifdef Intel64
    if (func_exec_count==1){
       command = ocolos_environ->perf_path+
                        " record -e cycles:u -j any,u -a -o "+
@@ -187,6 +188,29 @@ void run_perf_record(int target_pid, const ocolos_env* ocolos_environ){
                        " -- sleep 60";
 
    }
+#endif
+#ifdef AArch64
+   if (func_exec_count==1){
+      command = ocolos_environ->perf_path+
+                       " record -e cycles:u  -a -o "+
+                       ocolos_environ->tmp_data_path+ 
+                       "perf.data -p "+
+                       to_string(target_pid)+
+                       " -- sleep 60";
+   }
+   else{
+      stringstream ss;
+      ss << func_exec_count;
+      string f_exec_count = ss.str();
+      command = ocolos_environ->perf_path+
+                       " record -e cycles:u  -a -o "+
+                       ocolos_environ->tmp_data_path+ 
+                       "perf"+f_exec_count+".data -p "+
+                       to_string(target_pid)+
+                       " -- sleep 60";
+
+   }
+#endif
    char* command_cstr = new char [command.length()+1];
    strcpy (command_cstr, command.c_str());
    if (system(command_cstr)!=0) printf("[tracer] error in %s\n",__FUNCTION__);
@@ -208,6 +232,7 @@ void run_perf2bolt(const ocolos_env* ocolos_environ){
    char path1[3000];
 
    if (func_exec_count==1){
+#ifdef Intel64
       string command = ""+ocolos_environ->perf2bolt_path+" -p "+
                        ocolos_environ->tmp_data_path+
                        "perf.data -o "+
@@ -224,7 +249,25 @@ void run_perf2bolt(const ocolos_env* ocolos_environ){
          printf("[tracer] fail to run perf2bolt\n" );
          exit(-1);
       }
+#endif
+#ifdef AArch64
+      string command = ""+ocolos_environ->perf2bolt_path+" -p "+
+                       ocolos_environ->tmp_data_path+
+                       "perf.data -o "+
+                       ocolos_environ->tmp_data_path+
+                       "perf.fdata "+ ocolos_environ->target_binary_path+" -nl "; 
+      char* command_cstr = new char [command.length()+1];
+      strcpy (command_cstr, command.c_str());
 
+
+      fp1 = popen(command_cstr, "r");
+      free(command_cstr);
+
+      if (fp1 == NULL){
+         printf("[tracer] fail to run perf2bolt\n" );
+         exit(-1);
+      }
+#endif
       vector<string> BOLTed_addr;
       bool has_sharp = false;
       while (fgets(path1, sizeof(path1), fp1) != NULL) {
@@ -256,6 +299,7 @@ void run_perf2bolt(const ocolos_env* ocolos_environ){
 
    }
    else {
+#ifdef Intel64
       stringstream ss;
       ss << func_exec_count;
       string f_exec_count = ss.str();
@@ -278,6 +322,31 @@ void run_perf2bolt(const ocolos_env* ocolos_environ){
          printf("[tracer] fail to run perf2bolt\n" );
          exit(-1);
       }
+#endif
+#ifdef AArch64
+      stringstream ss;
+      ss << func_exec_count;
+      string f_exec_count = ss.str();
+
+      string command = ""+ocolos_environ->perf2bolt_path+
+                       " --ignore-build-id --cont-opt"+
+                       " -p "+
+                       ocolos_environ->tmp_data_path+
+                       "perf"+f_exec_count+".data -o "+
+                       ocolos_environ->tmp_data_path+
+                       "perf"+f_exec_count+".fdata "+ 
+                       ocolos_environ->target_binary_path+" -nl "; 
+      char* command_cstr = new char [command.length()+1];
+      strcpy (command_cstr, command.c_str());
+
+      fp1 = popen(command_cstr, "r");
+      free(command_cstr);
+
+      if (fp1 == NULL){
+         printf("[tracer] fail to run perf2bolt\n" );
+         exit(-1);
+      }
+#endif
 
       while (fgets(path1, sizeof(path1), fp1) != NULL) {
          string line(path1);
@@ -316,18 +385,42 @@ unordered_map<long, func_info> run_llvmbolt(const ocolos_env* ocolos_environ){
 
    FILE *fp1;
    char path1[3000];
+#ifdef Intel64
    string command = ""+ocolos_environ->llvmbolt_path+" " +
                     ocolos_environ->target_binary_path + 
                     " -b "+
                     ocolos_environ->tmp_data_path+
                     "perf.fdata -o " +
                     ocolos_environ->bolted_binary_path + 
-                    " --enable-bat --enable-ocolos"+
-                    " --enable-func-map-table "+
-                    " -reorder-blocks=cache+ "+
-                    "-reorder-functions=hfsort "+
+                    " --enable-bat"+
+                    " -reorder-blocks=ext-tsp "+
+                    "-reorder-functions=hfsort+ "+
                     "-split-functions=0 "+
                     "-dyno-stats";
+         
+   char* command_cstr = new char[command.length()+1];
+   strcpy(command_cstr, command.c_str()); 
+   fp1 = popen(command_cstr, "r");
+   free(command_cstr);
+
+   if (fp1 == NULL){
+      printf("Failed to run llvm-bolt command\n" );
+      exit(-1);
+   }
+#endif
+#ifdef AArch64
+   string command = ""+ocolos_environ->llvmbolt_path+" " +
+                    ocolos_environ->target_binary_path + 
+                    " -b "+
+                    ocolos_environ->tmp_data_path+
+                    "perf.fdata -o " +
+                    ocolos_environ->bolted_binary_path + 
+                    " --enable-bat "+
+                    " -reorder-blocks=ext-tsp "+
+                    "-reorder-functions=hfsort+ "+
+                    "-split-functions=0 "+
+                    "-dyno-stats";
+         
    char* command_cstr = new char[command.length()+1];
    strcpy(command_cstr, command.c_str()); 
    fp1 = popen(command_cstr, "r");
@@ -338,6 +431,7 @@ unordered_map<long, func_info> run_llvmbolt(const ocolos_env* ocolos_environ){
       exit(-1);
    }
 
+#endif
    // collect the bolted function name 
    // from BOLT's output
    unordered_map<long, func_info> changed_functions;
