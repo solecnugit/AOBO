@@ -103,15 +103,31 @@ int main(){
       // then make the target process to execute 
       // the lib code to insert machine code
       struct user_regs_struct regs, old_regs;
+#ifdef Intel64
       struct user_fpregs_struct fregs;
+#endif
+#ifdef AArch64
+      struct user_fpsimd_struct fregs;
+#endif
       vector<pid_t> tids_have_code_insertion;
+#ifdef Intel64
       for (unsigned i=0; i<tids.size(); i++){
-         if(!ptrace_single_step(tids[i], lib_addr, regs, old_regs, fregs)){
+         if(!ptrace_single_step_intel64(tids[i], lib_addr, regs, old_regs, fregs)){
             continue;
          }
-         ptrace_cont(tids[i], regs, old_regs, fregs);
+         ptrace_cont_intel64(tids[i], regs, old_regs, fregs);
          break;			
       }
+#endif
+#ifdef AArch64
+      for (unsigned i=0; i<tids.size(); i++){
+         if(!ptrace_single_step_aarch64(tids[i], lib_addr, regs, old_regs, fregs)){
+            continue;
+         }
+         ptrace_cont_aarch64(tids[i], regs, old_regs, fregs);
+         break;			
+      }
+#endif
 
       #ifdef DEBUG	
       // deliver a SIGSTOP signal to target process. 
