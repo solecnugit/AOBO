@@ -337,3 +337,23 @@ void clean_up(const ocolos_env* ocolos_environ){
                     ocolos_environ->tmp_data_path+"*.old ";
    if (system(command.c_str())==-1) exit(-1);
 }
+
+uint32_t compute_bl_instruction(uint32_t target_address, uint32_t instruction_address) {
+    int32_t offset = ((int32_t)target_address - (int32_t)instruction_address) / 4;
+    uint32_t imm26 = offset & 0x03ffffff;
+    uint32_t imm_sign_bit = (offset >> 25) & 1;
+    uint32_t machine_code = 0x94000000 | (imm_sign_bit << 26) | imm26;
+    return machine_code;
+}
+
+vector<uint8_t> convert_uint32_2_vec_uint8(uint32_t input){
+   vector<uint8_t> result;
+   uint8_t tmp;
+   for (int i = 3; i >=0; i--)
+   {
+      int offset=i*8;
+      tmp =(input >> offset)&0xFF;
+      result.push_back(tmp);
+   }
+   return result;
+}

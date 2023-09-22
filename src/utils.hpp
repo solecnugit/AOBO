@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <sys/ptrace.h>
-#include <sys/reg.h>
 #include <sys/types.h>
 #include <sys/user.h>
 #include <sys/syscall.h>
@@ -18,7 +17,6 @@
 #include <map>
 #include <wait.h>
 #include <libunwind.h>
-#include <libunwind-x86_64.h>
 #include <libunwind-ptrace.h>
 #include <signal.h>
 #include <pthread.h>
@@ -31,6 +29,15 @@
 #include <iomanip>
 #include <chrono>
 #include <filesystem>
+#ifdef Intel64
+#include <libunwind-x86_64.h>
+#include <sys/reg.h>
+#endif
+#ifdef AArch64
+#include <libunwind-aarch64.h>
+#include <errno.h>
+#include <linux/elf.h>
+#endif
 
 #define panic(X) fprintf(stderr, #X "\n");
 
@@ -292,3 +299,8 @@ vector<long> get_moved_addr_to_array(unordered_map<long, func_info> func);
  * Delete all intermediate files.
  */
 void clean_up(const ocolos_env*);
+
+
+vector<uint8_t> convert_uint32_2_vec_uint8(uint32_t input);
+
+uint32_t compute_bl_instruction(uint32_t target_address, uint32_t instruction_address);
