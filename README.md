@@ -1,5 +1,5 @@
 # Ocolos: Online COde Layout OptimizationS
-[Ocolos](https://github.com/upenn-acg/ocolos-public) is the first _online_ code layout optimization system(Intel64 platform) for unmodified applications written in unmanaged languages.  Our job is to support OCOLOS on the AArch64 platform.
+[Ocolos](https://github.com/upenn-acg/ocolos-public) is the first _online_ code layout optimization system on the Intel64 platform for unmodified applications.  Our job is to support OCOLOS on the AArch64 platform. And we can add -DIntel64 or -DAArch64 to Makefile's CXXFLAGS to select the target platform of OCOLOS.
 
 
 ## Prerequisites
